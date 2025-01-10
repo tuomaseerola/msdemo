@@ -1,0 +1,137 @@
+---
+title: "Analysis of emotion categories"
+format: html
+---
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+library(tidyverse)
+library(knitr)
+```
+
+## Read Qualtrics data 
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+data <- read.csv("Emotions and Music - a survey_November 29, 2024_09.10 2.csv")
+d<-data[3:nrow(data),]
+d<-data.frame(data)
+d$Progress<-as.numeric(d$Progress)
+d2<-dplyr::filter(d,Progress>80) # Filter out the unfinished surveys
+#write_csv(d2,"filtered_data_wide.csv") # export back to students
+```
+
+Convert the data from the wide format to long for an easier analysis.
+
+```{r}
+#| echo: true
+
+# pivot
+df <- pivot_longer(d2, cols = Q1:Q25, names_to = "Item", values_to = "Answer")
+
+# Add stimulus details
+dur <- c(150,150,150,150,150,250,250,250,250,250,500,500,500,500,500,1000,1000,1000,1000,1000,"full length","full length","full length","full length","full length")
+emotion<-c("Fear","Anger","Tenderness","Happiness","Sadness","Sadness","Happiness","Tenderness","Fear","Anger","Anger","Tenderness","Fear","Sadness","Happiness","Fear","Happiness","Sadness","Tenderness","Anger","Sadness","Happiness","Tenderness","Anger","Fear")
+df$Duration<-rep(dur,70)
+df$Correct<-rep(emotion,70)
+df$Correctness<-ifelse(df$Answer==df$Correct,1,0) # calculate correctness
+
+#write_csv(df,"processed_data.csv") # export long data
+
+# Explicitly code empty values as missing data (NA)
+df$Answer[df$Answer==""]<-NA
+df$Answer<-factor(df$Answer)
+df$Correct<-factor(df$Correct)
+df$Duration<-factor(df$Duration,levels = c(150,250,500,1000,"full length"))
+```
+
+## Analysis
+
+### Confusion matrix
+
+```{r}
+#| echo: true
+#| output: asis
+
+t <- table(df$Answer,df$Correct)
+print(knitr::kable(t))
+
+example <- caret::confusionMatrix(data=df$Answer, reference = df$Correct)
+#print(kable(example$table))
+
+t<-table(df$Duration,df$Correctness)
+knitr::kable(t[,2]/350,digits = 2)
+
+t<-table(df$Correct,df$Correctness)
+knitr::kable(t[,2]/350,digits = 2)
+```
+Overall classification accuracy is reported in the Overall Statistic section below, and indicates that the overall success is pretty high 0.619, _p_ <.001. There are various metrics for this, such as sensitivity, specificity, and precision, which are reported in the table below, but we can just focus on overalll success, and in the next section the actual classification accuracy across emotions and durations. 
+
+```{r}
+print(example)
+
+```
+
+### Statistical tests
+
+Here are the results of the chi-square tests for the overall accuracy and for each emotion and duration separately. In the first calculation on Friday, I didn't adjust adjust the baseline probabilities of these chi-square tests. The probability of guessing correctly is 0.2 (1 was correct emotion out of 5 candidates), so I have altered the analyses to compare the fails (0) and successes (1) to the baseline of 0.8 (for fails) and 0.2 (for successes). You can see this in the code below
+
+```chisq.test(t, p = c(0.8,0.2))```
+where the `chisq.test` is the chi-square test function in R, `t` is the table of observed frequencies, and `p` is the vector of expected probabilities.
+
+
+```{r}
+# Overall accuracy
+t <- table(df$Correctness)
+print(t)
+# the probability of guessing correctly is 0.2
+print(chisq.test(t,p = c(0.8,0.2)))
+
+# Across all emotions
+t <- table(df$Correct,df$Correctness)
+chisq.test(t)
+
+# for each emotion separately 
+chisq.test(t[1,], p = c(0.8,0.2)) # Anger
+chisq.test(t[2,], p = c(0.8,0.2)) # Fear
+chisq.test(t[3,], p = c(0.8,0.2)) # Happiness
+chisq.test(t[4,], p = c(0.8,0.2)) # Sadness
+chisq.test(t[5,], p = c(0.8,0.2)) # Tenderness
+```
+
+### Across durations
+
+```{r}
+# Across all durations
+t <- table(df$Duration,df$Correctness)
+chisq.test(t)
+
+# Across each duration separately
+# all significant below p<0.001 level!
+chisq.test(t[1,], p = c(0.8,0.2)) # 150ms
+chisq.test(t[2,], p = c(0.8,0.2)) # 250ms
+chisq.test(t[3,], p = c(0.8,0.2)) # 500ms
+chisq.test(t[4,], p = c(0.8,0.2)) # 1000ms
+chisq.test(t[5,], p = c(0.8,0.2)) # full length
+```
+
+### Across musicianship levels
+
+```{r}
+# Across all musicianship levels
+t <- table(df$Musicianship,df$Correctness)
+knitr::kable(t[,2]/rowSums(t),digits = 2)
+
+# recode musicians into non-musicians and musicians
+df$Musicianship <- factor(df$Musicianship,levels=c("Nonmusician","Music-loving nonmusician","Amateur musician","Serious amateur musician","Semi-professional musician"),labels = c("Non-musician","Non-musician","Musician","Musician","Musician"))
+t <- table(df$Musicianship,df$Correctness)
+knitr::kable(t[,2]/rowSums(t),digits = 2)
+
+chisq.test(t[1,], p = c(0.8,0.2)) # non-musicians
+chisq.test(t[2,], p = c(0.8,0.2)) # musicians
+
+```
